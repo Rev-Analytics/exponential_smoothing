@@ -19,16 +19,20 @@ import itertools
 
 import sys
 
+############################################## 
+# will change existing code base that uses fc_propet to exponential Smoothing
+# change date and value type requirements 
+# change value to target & 
+# target to ts_id
 ##############################################
 class fc_prophet():
     def __init__(self, 
                    df: pd.core.frame.DataFrame,
                    horizon: int,
-                   date_variable: typing.Union[int, str],
-                   value_variable: typing.Union[int, str],
-                   #*argv are the field(s) that will be iterated over. Develops exhuastive comb of dimensions
+                   date_variable: str, #typing.Union[int, str],
+                   value_variable: str, #typing.Union[int, str],
                    field_list: list,
-                   target_variable: str,
+                   ts_id: str,
                    section_list: list = None,
                    exog: np.array = None, # if supplied, must be of lenght of df.shape[0] or df.shape[0] + horizon
                    check_missing:bool = True,
@@ -38,11 +42,11 @@ class fc_prophet():
         self.cycle_length = cycle_length
         self.horizon = horizon
         self.exog = exog
-        self.target_variable = target_variable
+        self.ts_id = ts_id
         self.df = df
         self.value_field = value_variable
         self.list_field = field_list.copy()
-        self.list_field.append(self.target_variable)
+        self.list_field.append(self.ts_id)
         self.list_df = df[self.list_field].drop_duplicates().reset_index().copy()
         self.freq = freq
 
@@ -67,13 +71,13 @@ class fc_prophet():
        # Check if section list, passed in otherwise use full unique set
         self.section_list = section_list
         if self.section_list is None:
-            self.section_list = df[target_variable].unique()
+            self.section_list = df[ts_id].unique()
 
         #Exogenous variables handling   
 
         if self.exog is not None:
             print('Exogenous data included')
-            if (self.exog.shape[-2] != self.df_ready[self.date_variable].unique().shape[0] + self.horizon) | (self.exog.shape[-1] != self.df_ready[self.target_variable].unique().shape[0]) :
+            if (self.exog.shape[-2] != self.df_ready[self.date_variable].unique().shape[0] + self.horizon) | (self.exog.shape[-1] != self.df_ready[self.ts_id].unique().shape[0]) :
                 print("You Imbecile!!... Exogenous array dimension must match input data plus forecast horizon! exiting. Shameful! (:")
                 #self.exog = None
                 sys.exit()
@@ -97,7 +101,7 @@ class fc_prophet():
         forecast = pd.DataFrame()
         ## check if i / enumerate is needed
         for i, section in enumerate(self.section_list):
-            temp = self.df_ready[self.df_ready[self.target_variable] == section].copy()
+            temp = self.df_ready[self.df_ready[self.ts_id] == section].copy()
             print("Forecasting the following",temp[self.list_field].iloc[0,:],"...")
             if temp.shape[0] >= 2 * cycle_length: 
                 temp = temp[[self.date_variable,self.value_field]]
@@ -107,7 +111,7 @@ class fc_prophet():
                 # if fcast.yhat[temp.shape[0]+1:].min() <0:
                 #     fcast, m = self.train_logit(temp)        
                 
-                fcast[self.target_variable] = section
+                fcast[self.ts_id] = section
                 forecast = forecast.append(fcast,ignore_index=True)
                 self.mod_list_keys.append(section)
                 # review the line of code below to see if this increases memory demands
@@ -117,12 +121,12 @@ class fc_prophet():
                 self.short_list_fields[section] = temp[self.list_field].iloc[0,:]
 
         # include actuals into the forecast output data frame
-        temp = self.df_ready[[self.target_variable,self.date_variable,self.value_field ]].copy()
-        temp.columns = [self.target_variable,'ds','yact']
-        forecast = forecast.merge(temp,how='left',on=['ds',self.target_variable])
+        temp = self.df_ready[[self.ts_id,self.date_variable,self.value_field ]].copy()
+        temp.columns = [self.ts_id,'ds','yact']
+        forecast = forecast.merge(temp,how='left',on=['ds',self.ts_id])
         # add dimension columns back to forecast df, so see dimensions (columb fields you iterate on)
         temp_list = self.list_df.copy()
-        forecast = forecast.merge(temp_list,how='inner', on=self.target_variable)    
+        forecast = forecast.merge(temp_list,how='inner', on=self.ts_id)    
         self.forecast = forecast
   
     def get_train(self,df,section):
@@ -203,18 +207,18 @@ class fc_prophet():
         cv_df = pd.DataFrame()
         if srl_num is not None:
             #srl_num = srl_num
-            temp = self.df_ready[self.df_ready[self.target_variable] == srl_num].copy()
+            temp = self.df_ready[self.df_ready[self.ts_id] == srl_num].copy()
             temp = self.create_cv_df(temp,start,step,horizon,cp,sp)
-            temp[self.target_variable] = srl_num
+            temp[self.ts_id] = srl_num
             cv_df = cv_df.append(temp,ignore_index=True)
         else:
-            for section in self.df_ready[self.target_variable].unique():
-                temp = self.df_ready[self.df_ready[self.target_variable] == section].copy()
+            for section in self.df_ready[self.ts_id].unique():
+                temp = self.df_ready[self.df_ready[self.ts_id] == section].copy()
                 temp = self.create_cv_df(temp,section,start,step,horizon,cp,sp)
-                temp[self.target_variable] = section
+                temp[self.ts_id] = section
                 cv_df = cv_df.append(temp,ignore_index=True)
         # added this line to add f_list to output cv_df
-        cv_df = cv_df.merge(self.list_df,how='left',on = self.target_variable)
+        cv_df = cv_df.merge(self.list_df,how='left',on = self.ts_id)
         return cv_df
 
     def create_cv_df(self,df,section,start:int,step:int,horizon:int=None,cp : float= .05,sp : float=10):
@@ -291,7 +295,7 @@ class fc_prophet():
 
     def get_metrics_summary(self,df,section: str = None, pivot_field: str=None):
         if pivot_field is None:
-            pivot_field = self.target_variable
+            pivot_field = self.ts_id
 
         df = df.groupby([df.columns[0],pivot_field]).sum().reset_index().copy()
         # debug
@@ -313,7 +317,7 @@ class fc_prophet():
         metrics.append({pivot_field:'Total','rmse':rmse,'mape':mape,'mae':mae})
 
         metrics_df = pd.DataFrame(metrics)
-        metrics_df = metrics_df.merge(self.list_df,how='left',on = self.target_variable)
+        metrics_df = metrics_df.merge(self.list_df,how='left',on = self.ts_id)
 
         return metrics_df
         # if detail:

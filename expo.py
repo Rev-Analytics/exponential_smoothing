@@ -4,7 +4,7 @@ import pandas as pd
 from pandas.core.indexes.api import get_objs_combined_axis
 # import pmdarima as pm
 # from pmdarima import model_selection
-import seaborn as sns 
+#import seaborn as sns 
 from datetime import datetime
 import typing
 from sklearn.model_selection import TimeSeriesSplit
@@ -30,25 +30,28 @@ class fc_prophet():
                    df: pd.core.frame.DataFrame,
                    horizon: int,
                    date_variable: str, #typing.Union[int, str],
-                   value_variable: str, #typing.Union[int, str],
+                   target_variable: str, #typing.Union[int, str],
                    field_list: list,
                    ts_id: str,
-                   section_list: list = None,
+                   section_list: list = None,  # keep it for now
                    exog: np.array = None, # if supplied, must be of lenght of df.shape[0] or df.shape[0] + horizon
-                   check_missing:bool = True,
-                   freq:str = 'MS',
-                   cycle_length: int =12,cp: float = .05,sp: float =10):
+                   seasonal_periods: int = None,
+                   **kwargs):
+
+                #    trend:str ='add',seasonal:str='add',
+                #    use_boxcox:boolean =True,
+                #    initialization_method:str='estimated'                   ):
         self.date_variable = date_variable
         self.cycle_length = cycle_length
         self.horizon = horizon
         self.exog = exog
         self.ts_id = ts_id
         self.df = df
-        self.value_field = value_variable
+        self.value_field = target_variable
         self.list_field = field_list.copy()
         self.list_field.append(self.ts_id)
         self.list_df = df[self.list_field].drop_duplicates().reset_index().copy()
-        self.freq = freq
+        self.freq = seasonal_periods
 
         # include serial numbers of combinations that don't have at least 24 observations
         self.short_list_keys = list()
@@ -59,9 +62,9 @@ class fc_prophet():
 
         self.exog_dict = dict()
 
-        #self.forecast = dict()  ### I don't think this is needed
-        self.cp = cp
-        self.sp = sp
+        # #self.forecast = dict()  ### I don't think this is needed
+        # self.cp = cp
+        # self.sp = sp
 
         #  Ensure date variable is correct datetime format
         self.df[self.date_variable] = pd.to_datetime(self.df[self.date_variable])     

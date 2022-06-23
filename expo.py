@@ -11,7 +11,9 @@ from sklearn.model_selection import TimeSeriesSplit
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import math
-from prophet import Prophet
+from statsmodels.tsa.api import ExponentialSmoothing, Holt
+
+#from prophet import Prophet
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 # upgrade to the the latest scikit-learn pip install -U scikit-learn
 import random
@@ -25,7 +27,22 @@ import sys
 # change value to target & 
 # target to ts_id
 ##############################################
-class fc_prophet():
+
+
+# Dictionary for selecting period required by date_range function
+# https://pandas.pydata.org/docs/user_guide/timeseries.html#timeseries-offset-aliases
+periods = {365:'D',7:'D',12:'M',52:'W',4:'Q'}
+
+class expo():
+    """
+    target field is the string name of the field, in the data frame you intend to forecast
+    ts_id - requires that data series be pre serialized with a time series id (ts_id)
+    field list - allows the procedure to match each ts_id with the field list, a list of fields representing
+      dimensions for each single series. For example if you series are each store, each product, and each city, 
+      then the field list is ['store', 'product','city']
+    seasonal periods - the representation for frequency - daily, weekly, etc. stats models for expo smooth uses
+      12, for yearly and 52 for weekly  
+    """
     def __init__(self, 
                    df: pd.core.frame.DataFrame,
                    horizon: int,
@@ -37,21 +54,16 @@ class fc_prophet():
                    exog: np.array = None, # if supplied, must be of lenght of df.shape[0] or df.shape[0] + horizon
                    seasonal_periods: int = None,
                    **kwargs):
-
-                #    trend:str ='add',seasonal:str='add',
-                #    use_boxcox:boolean =True,
-                #    initialization_method:str='estimated'                   ):
         self.date_variable = date_variable
-        self.cycle_length = cycle_length
         self.horizon = horizon
         self.exog = exog
         self.ts_id = ts_id
         self.df = df
-        self.value_field = target_variable
+        self.target_field = target_variable
         self.list_field = field_list.copy()
         self.list_field.append(self.ts_id)
         self.list_df = df[self.list_field].drop_duplicates().reset_index().copy()
-        self.freq = seasonal_periods
+        self.period = seasonal_periods
 
         # include serial numbers of combinations that don't have at least 24 observations
         self.short_list_keys = list()
@@ -60,26 +72,27 @@ class fc_prophet():
         self.mod_list_keys = list()
         self.models = dict()
 
-        self.exog_dict = dict()
-
-        # #self.forecast = dict()  ### I don't think this is needed
-        # self.cp = cp
-        # self.sp = sp
-
         #  Ensure date variable is correct datetime format
         self.df[self.date_variable] = pd.to_datetime(self.df[self.date_variable])     
                
-        self.df_ready = df.copy() 
+        # version of the data frame used through out methods and class
+        self.df_ready = self.df.copy() # update from self.df_ready = df.copy()
 
        # Check if section list, passed in otherwise use full unique set
         self.section_list = section_list
         if self.section_list is None:
             self.section_list = df[ts_id].unique()
 
+
+        # Create future date index - only need this calculated once
+        self.fc_index = pd.date_range(start=self.df_ready[self.date_variable].max(), periods=self.horizon+1, freq=periods[self.period])[1:]
+        
         #Exogenous variables handling   
 
         if self.exog is not None:
             print('Exogenous data included')
+            self.exog_dict = dict() # declare exog dictionary
+
             if (self.exog.shape[-2] != self.df_ready[self.date_variable].unique().shape[0] + self.horizon) | (self.exog.shape[-1] != self.df_ready[self.ts_id].unique().shape[0]) :
                 print("You Imbecile!!... Exogenous array dimension must match input data plus forecast horizon! exiting. Shameful! (:")
                 #self.exog = None
@@ -106,10 +119,18 @@ class fc_prophet():
         for i, section in enumerate(self.section_list):
             temp = self.df_ready[self.df_ready[self.ts_id] == section].copy()
             print("Forecasting the following",temp[self.list_field].iloc[0,:],"...")
-            if temp.shape[0] >= 2 * cycle_length: 
-                temp = temp[[self.date_variable,self.value_field]]
-                temp.columns = ['ds','y']
+            if temp.shape[0] >= 2 * self.period: 
+                # get single time series, strip to time series object
+
+                # not needed if prep.py fill_blanks function is run. Can remove this 
+                # in production
+                temp.sort_values(by=self.date_variable,inplace=True)
+
+                temp = temp[[self.date_variable,self.target_field]]
+#                temp.columns = ['ds','y']
                 fcast, m = self.get_train(temp,section)
+
+
 
                 # if fcast.yhat[temp.shape[0]+1:].min() <0:
                 #     fcast, m = self.train_logit(temp)        
@@ -124,7 +145,7 @@ class fc_prophet():
                 self.short_list_fields[section] = temp[self.list_field].iloc[0,:]
 
         # include actuals into the forecast output data frame
-        temp = self.df_ready[[self.ts_id,self.date_variable,self.value_field ]].copy()
+        temp = self.df_ready[[self.ts_id,self.date_variable,self.target_field ]].copy()
         temp.columns = [self.ts_id,'ds','yact']
         forecast = forecast.merge(temp,how='left',on=['ds',self.ts_id])
         # add dimension columns back to forecast df, so see dimensions (columb fields you iterate on)
@@ -158,7 +179,7 @@ class fc_prophet():
 
                 #future['exog'] = self.exog 
 
-        else:
+        else: # no exog ... the default state
             m.fit(temp)
             future = m.make_future_dataframe(periods=self.horizon,freq=self.freq)
     
@@ -187,7 +208,7 @@ class fc_prophet():
         ax.fill_between(ds_fc, temp_fc[:,0], temp_fc[:,1],alpha=0.1, color='b')
 
         plt.xlabel('Date')
-        plt.ylabel(self.value_field)
+        plt.ylabel(self.target_field)
         plt.legend()
 
         tmp = temp[self.list_field].drop_duplicates()
@@ -239,7 +260,7 @@ class fc_prophet():
 
         while start < end:
             temp = df.iloc[:start,:]
-            temp = temp[[self.date_variable,self.value_field]]
+            temp = temp[[self.date_variable,self.target_field]]
             temp.columns = ['ds','y']
             print('cutoff is:',start)
             temp_horizon = min(horizon,end-start)
@@ -253,7 +274,7 @@ class fc_prophet():
             #     fcast = self.train_cv_logit(temp,section,start,temp_end,temp_horizon,cp,sp)
 
             cv_df_temp = fcast[['ds','yhat','yhat_lower','yhat_upper']].tail(temp_horizon)
-            cv_df_temp['y'] = df[self.value_field][start:start+temp_horizon].to_numpy()
+            cv_df_temp['y'] = df[self.target_field][start:start+temp_horizon].to_numpy()
             cv_df_temp['cutoff'] = temp.ds.max()
             cv_df = cv_df.append(cv_df_temp,ignore_index=True)
             start += step

@@ -60,10 +60,11 @@ class expo():
         self.ts_id = ts_id
         self.df = df
         self.target_field = target_variable
+        self.period = seasonal_periods
+        # Assign the field list of key dimensions, add ts_id
         self.list_field = field_list.copy()
         self.list_field.append(self.ts_id)
         self.list_df = df[self.list_field].drop_duplicates().reset_index().copy()
-        self.period = seasonal_periods
 
         # include serial numbers of combinations that don't have at least 24 observations
         self.short_list_keys = list()
@@ -94,7 +95,7 @@ class expo():
             self.exog_dict = dict() # declare exog dictionary
 
             if (self.exog.shape[-2] != self.df_ready[self.date_variable].unique().shape[0] + self.horizon) | (self.exog.shape[-1] != self.df_ready[self.ts_id].unique().shape[0]) :
-                print("You Imbecile!!... Exogenous array dimension must match input data plus forecast horizon! exiting. Shameful! (:")
+                print("Exogenous array dimension must match input data plus forecast horizon! exiting...")
                 #self.exog = None
                 sys.exit()
                 # fill in exog dictionary - tying each section to corresponding exogenous variable set
@@ -122,13 +123,18 @@ class expo():
             if temp.shape[0] >= 2 * self.period: 
                 # get single time series, strip to time series object
 
+                temp = temp[[self.date_variable,self.target_field]]
+
                 # not needed if prep.py fill_blanks function is run. Can remove this 
                 # in production
-                temp.sort_values(by=self.date_variable,inplace=True)
+                temp.sort_values(by=self.date_variable,inplace=True)               
+                temp.set_index('date',inplace=True) # make this a ts-lik object
 
-                temp = temp[[self.date_variable,self.target_field]]
-#                temp.columns = ['ds','y']
-                fcast, m = self.get_train(temp,section)
+                # idea - use get train to only train - use another function to 
+                # transform into required data frame section
+
+                fcast, m = self.get_train(temp,section) # 
+
 
 
 
@@ -153,32 +159,39 @@ class expo():
         forecast = forecast.merge(temp_list,how='inner', on=self.ts_id)    
         self.forecast = forecast
   
-    def get_train(self,df,section):
-        temp = df.copy()
-        m = Prophet(changepoint_prior_scale = self.cp,seasonality_prior_scale=self.sp)
-        # check for exogenous variable
-        if self.exog is not None:
-        # for multiple variables need to add for loop
-            exog = self.exog_dict[section]
-            exog_train = exog[:temp.shape[0],:]  
+    def get_train(self,ts,section):
+        temp_ts = df.copy()
+        #m = Prophet(changepoint_prior_scale = self.cp,seasonality_prior_scale=self.sp)
 
-        # for each variable, generate a new exog variable column and pass in appropriate variable name
-            for i in range(0,exog.shape[1]):
-                m.add_regressor('exog'+str(i))
-                temp['exog'+str(i)] = exog_train[:,i]
+###     add logic to include and pass in paramters, use a function here and call it at the begining
 
-            # m.add_regressor('exog')
-            # temp['exog'] = exog
+        # consider creating a dictionary to store each object, then we can call it later
+        fit1 = ExponentialSmoothing(sdf,
+            seasonal_periods = self.periods,
+            trend='add',seasonal='add',
+            use_boxcox=True,
+            initialization_method='estimated',).fit()
 
-            m.fit(temp)
-            future = m.make_future_dataframe(periods=self.horizon,freq=self.freq)
+        # CURRENTELY DISABLED ### check for exogenous variable
+        ################################################
+        # if self.exog is not None:
+        # # for multiple variables need to add for loop
+        #     exog = self.exog_dict[section]
+        #     exog_train = exog[:temp.shape[0],:]  
+        # # for each variable, generate a new exog variable column and pass in appropriate variable name
+        #     for i in range(0,exog.shape[1]):
+        #         m.add_regressor('exog'+str(i))
+        #         temp['exog'+str(i)] = exog_train[:,i]
+
+        #     m.fit(temp)
+        #     future = m.make_future_dataframe(periods=self.horizon,freq=self.freq)
             
-            # for each variable, generate a new exog variable column and pass in appropriate variable name
-            for i in range(0,exog.shape[1]):
-                future['exog'+str(i)] = exog[:,i]
+        #     # for each variable, generate a new exog variable column and pass in appropriate variable name
+        #     for i in range(0,exog.shape[1]):
+        #         future['exog'+str(i)] = exog[:,i]
 
                 #future['exog'] = self.exog 
-
+        ################################################
         else: # no exog ... the default state
             m.fit(temp)
             future = m.make_future_dataframe(periods=self.horizon,freq=self.freq)

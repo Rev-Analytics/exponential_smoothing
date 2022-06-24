@@ -163,7 +163,7 @@ class expo():
         temp_ts = df.copy()
         #m = Prophet(changepoint_prior_scale = self.cp,seasonality_prior_scale=self.sp)
 
-###     add logic to include and pass in paramters, use a function here and call it at the begining
+        ### add logic to include and pass in paramters, use a function here and call it at the begining
 
         # consider creating a dictionary to store each object, then we can call it later
         fit1 = ExponentialSmoothing(sdf,

@@ -29,9 +29,7 @@ import sys
 ##############################################
 
 
-# Dictionary for selecting period required by date_range function
-# https://pandas.pydata.org/docs/user_guide/timeseries.html#timeseries-offset-aliases
-periods = {365:'D',7:'D',12:'M',52:'W',4:'Q'}
+
 
 class expo():
     """
@@ -83,7 +81,19 @@ class expo():
         self.section_list = section_list
         if self.section_list is None:
             self.section_list = df[ts_id].unique()
+        
+        # Dictionary for selecting period required by date_range function
+        # https://pandas.pydata.org/docs/user_guide/timeseries.html#timeseries-offset-aliases
 
+        periods = {365:'D',7:'D',12:'M',52:'W',4:'Q'}
+
+        # kwargs, initialize default.
+        # check for kwargs, and update params if needed. W
+        def_param = {'seasonal_periods': 12, 'trend': 'add', 'seasonal': 'add', 'use_boxcox': True, 'initialization_method': 'estimated'}
+        if kwargs:
+            for key, value in kwargs.items():
+                def_param[key] = value 
+        self.params = def_param
 
         # Create future date index - only need this calculated once
         self.fc_index = pd.date_range(start=self.df_ready[self.date_variable].max(), periods=self.horizon+1, freq=periods[self.period])[1:]
@@ -127,50 +137,44 @@ class expo():
 
                 # not needed if prep.py fill_blanks function is run. Can remove this 
                 # in production
-                temp.sort_values(by=self.date_variable,inplace=True)               
-                temp.set_index('date',inplace=True) # make this a ts-lik object
+                #temp.sort_values(by=self.date_variable,inplace=True)               
+                temp.set_index('date',inplace=True) # make this a ts-like object
 
                 # idea - use get train to only train - use another function to 
                 # transform into required data frame section
 
-                fcast, m = self.get_train(temp,section) # 
-
-
-
-
-                # if fcast.yhat[temp.shape[0]+1:].min() <0:
-                #     fcast, m = self.train_logit(temp)        
-                
+                fcast = self.get_train(temp)  
+               
                 fcast[self.ts_id] = section
                 forecast = forecast.append(fcast,ignore_index=True)
                 self.mod_list_keys.append(section)
                 # review the line of code below to see if this increases memory demands
-                self.models[section] = m
+                #                self.models[section] = m
             else:  ## not currently in use
                 self.short_list_keys.append(section)
                 self.short_list_fields[section] = temp[self.list_field].iloc[0,:]
 
+        # only applicable in fb prophet with insample predictions
         # include actuals into the forecast output data frame
-        temp = self.df_ready[[self.ts_id,self.date_variable,self.target_field ]].copy()
-        temp.columns = [self.ts_id,'ds','yact']
-        forecast = forecast.merge(temp,how='left',on=['ds',self.ts_id])
+        # temp = self.df_ready[[self.ts_id,self.date_variable,self.target_field ]].copy()
+        # temp.columns = [self.ts_id,'date','actu']
+        # forecast = forecast.merge(temp,how='left',on=['ds',self.ts_id])
         # add dimension columns back to forecast df, so see dimensions (columb fields you iterate on)
         temp_list = self.list_df.copy()
         forecast = forecast.merge(temp_list,how='inner', on=self.ts_id)    
         self.forecast = forecast
   
-    def get_train(self,ts,section):
-        temp_ts = df.copy()
-        #m = Prophet(changepoint_prior_scale = self.cp,seasonality_prior_scale=self.sp)
+    def get_train(self,ts_data):
+        temp_ts = ts_data.copy()
+        fit = ExponentialSmoothing(temp_ts,**self.params,).fit()
+        fcast = fit.forecast(self.horizon)
 
-        ### add logic to include and pass in paramters, use a function here and call it at the begining
+        output = {'date':self.fc_index,'forecast':fcast.values}
+        output_df = pd.DataFrame(output)
 
-        # consider creating a dictionary to store each object, then we can call it later
-        fit1 = ExponentialSmoothing(sdf,
-            seasonal_periods = self.periods,
-            trend='add',seasonal='add',
-            use_boxcox=True,
-            initialization_method='estimated',).fit()
+        return output_df
+
+        # create section that saves fit object ... check memory usage
 
         # CURRENTELY DISABLED ### check for exogenous variable
         ################################################
@@ -192,15 +196,15 @@ class expo():
 
                 #future['exog'] = self.exog 
         ################################################
-        else: # no exog ... the default state
-            m.fit(temp)
-            future = m.make_future_dataframe(periods=self.horizon,freq=self.freq)
+        # else: # no exog ... the default state
+        #     m.fit(temp)
+        #     future = m.make_future_dataframe(periods=self.horizon,freq=self.freq)
     
-        fcast = m.predict(future) 
+        # fcast = m.predict(future) 
 
-        # set floor at 0 for negative values
-        fcast.yhat = np.where(fcast.yhat<0,0,fcast.yhat)
-        return fcast,m
+        # # set floor at 0 for negative values
+        # fcast.yhat = np.where(fcast.yhat<0,0,fcast.yhat)
+        # return fcast,m
 
     def plot(self,srl_num: int = None):
         fig, ax = plt.subplots(figsize=(20,10))

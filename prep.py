@@ -38,7 +38,7 @@ class prep():
         self.range.columns = [self.date_variable]
 
         self.df_ready,self.list_df_srl = self.serialize()
-        print('this is inside methdod, after serilazie function ',self.df_ready.columns)
+        print('this is inside method, after serilazie function ',self.df_ready.columns)
         self.df_ready = self.fill_blanks()
         
         self.df_ready.drop('index',axis=1,inplace=True)

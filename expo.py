@@ -28,9 +28,6 @@ import sys
 # target to ts_id
 ##############################################
 
-
-
-
 class expo():
     """
     target field is the string name of the field, in the data frame you intend to forecast
@@ -48,9 +45,9 @@ class expo():
                    target_variable: str, #typing.Union[int, str],
                    field_list: list,
                    ts_id: str,
+                   seasonal_periods: int, # required to determine frequency
                    section_list: list = None,  # keep it for now
                    exog: np.array = None, # if supplied, must be of lenght of df.shape[0] or df.shape[0] + horizon
-                   seasonal_periods: int = None,
                    **kwargs):
         self.date_variable = date_variable
         self.horizon = horizon
@@ -89,7 +86,7 @@ class expo():
 
         # kwargs, initialize default.
         # check for kwargs, and update params if needed. W
-        def_param = {'seasonal_periods': 12, 'trend': 'add', 'seasonal': 'add', 'use_boxcox': True, 'initialization_method': 'estimated'}
+        def_param = {'seasonal_periods': self.period, 'trend': 'add', 'seasonal': 'add', 'use_boxcox': True, 'initialization_method': 'estimated'}
         if kwargs:
             for key, value in kwargs.items():
                 def_param[key] = value 
@@ -137,7 +134,7 @@ class expo():
 
                 # not needed if prep.py fill_blanks function is run. Can remove this 
                 # in production
-                #temp.sort_values(by=self.date_variable,inplace=True)               
+                # temp.sort_values(by=self.date_variable,inplace=True)               
                 temp.set_index('date',inplace=True) # make this a ts-like object
 
                 # idea - use get train to only train - use another function to 
@@ -161,8 +158,10 @@ class expo():
         # forecast = forecast.merge(temp,how='left',on=['ds',self.ts_id])
         # add dimension columns back to forecast df, so see dimensions (columb fields you iterate on)
         temp_list = self.list_df.copy()
-        forecast = forecast.merge(temp_list,how='inner', on=self.ts_id)    
+        forecast = forecast.merge(temp_list.drop(['index'],axis=1),how='inner', on=self.ts_id)    
+
         self.forecast = forecast
+        print('final fc df',self.forecast.head())
   
     def get_train(self,ts_data):
         temp_ts = ts_data.copy()
